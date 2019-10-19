@@ -27,7 +27,15 @@ std::map<int, int> texIdMap;
 
 int tDuration; //Animation duration in ticks.
 int currTick = 0; //current tick
-float timeStep = 50; //Animation time step = 50 m.sec
+float timeStep = 50; //Animation time step = 50 m.sec.
+
+struct meshInit
+{
+	int mNumVertices;
+	aiVector3D* mVertices;
+	aiVector3D* mNormals;
+};
+meshInit* initData;
 
 //------------Modify the following as needed----------------------
 float materialCol[4] = { 0.9, 0.9, 0.9, 1 }; //Default material colour (not used if model's colour is available)
@@ -38,12 +46,30 @@ bool twoSidedLight = false; //Change to 'true' to enable two-sided lighting
 //-------Loads model data from file and creates a scene object----------
 bool loadModel(const char* fileName)
 {
-    scene = aiImportFile(fileName, aiProcessPreset_TargetRealtime_MaxQuality | aiProcess_Debone);
+    scene = aiImportFile(fileName, aiProcessPreset_TargetRealtime_MaxQuality);
     if (scene == NULL)
         exit(1);
     if (scene->HasAnimations()) {
 		tDuration = scene->mAnimations[0]->mDuration;
 	}
+	
+	aiMesh* mesh;
+	int numVert;
+	initData = new meshInit[scene->mNumMeshes];
+	for (int m = 0; m < scene->mNumMeshes; m++)
+	{
+		mesh = scene->mMeshes[m];
+		numVert = mesh->mNumVertices;
+		(initData + m)->mNumVertices = numVert;
+		(initData + m)->mVertices = new aiVector3D[numVert];
+		(initData + m)->mNormals = new aiVector3D[numVert];
+		
+		for (int n = 0; n < numVert; n++) {
+			(initData + m)->mVertices[n] = mesh->mVertices[n];
+			(initData + m)->mNormals[n] = mesh->mNormals[n];
+		}
+	}
+	
     //~ printSceneInfo(scene);
     //~ printMeshInfo(scene);
     //~ printTreeInfo(scene->mRootNode);
@@ -69,6 +95,12 @@ void loadGLTextures(const aiScene* scene)
         aiString path; // filename
 
         if (scene->mMaterials[m]->GetTexture(aiTextureType_DIFFUSE, 0, &path) == AI_SUCCESS) {
+			const char* c = &path.data[path.length - 1];
+			while (*(c-1) != '/' && c != path.data)
+			{
+				c--;
+			}
+			cout << c << endl;
             glEnable(GL_TEXTURE_2D);
             ILuint imageId;
             GLuint texId;
@@ -78,7 +110,7 @@ void loadGLTextures(const aiScene* scene)
             ilBindImage(imageId); /* Binding of DevIL image name */
             ilEnable(IL_ORIGIN_SET);
             ilOriginFunc(IL_ORIGIN_LOWER_LEFT);
-            if (ilLoadImage((ILstring)path.data)) //if success
+            if (ilLoadImage((ILstring)c)) //if success
             {
                 /* Convert image to RGBA */
                 ilConvertImage(IL_RGBA, IL_UNSIGNED_BYTE);
@@ -98,7 +130,7 @@ void loadGLTextures(const aiScene* scene)
                 glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
             }
             else {
-                cout << "Couldn't load Image: " << path.data << endl;
+                cout << "Couldn't load Image: " << c << endl;
             }
         }
     } //loop for material
@@ -222,6 +254,56 @@ void updateNodeMatrices(int tick)
     }
 }
 
+// Transform vertices of character models
+void transformVertices()
+{
+	aiMesh* mesh;
+	aiBone* bone;
+	aiMatrix4x4 offset;
+	aiMatrix4x4 m;
+	aiMatrix4x4 normal;
+	aiNode* nd;
+	aiNode* parent;
+	aiVector3D vert;
+	aiVector3D norm;
+	
+	int vid;
+	
+	for (int n = 0; n < scene->mNumMeshes; n++) {
+        mesh = scene->mMeshes[n]; //Get the mesh object
+
+		for (int b = 0; b < mesh->mNumBones; b++)
+		{
+			bone = mesh->mBones[b];
+			offset = bone->mOffsetMatrix;
+			nd = scene->mRootNode->FindNode(bone->mName);
+			parent = nd->mParent;
+			m = nd->mTransformation * offset;
+			
+			while (parent != NULL)
+			{
+				m = parent->mTransformation * m;
+				parent = parent->mParent;
+			}
+			
+			normal = m;
+			normal.Inverse().Transpose();
+			
+			for (int w = 0; w < bone->mNumWeights; w++) {
+				vid = (bone->mWeights[w]).mVertexId;
+				
+				vert = (initData + n)->mVertices[vid];
+				norm = (initData + n)->mNormals[vid];
+				
+				mesh->mVertices[vid] = m * vert;
+				mesh->mNormals[vid] = normal * norm;
+			}
+			
+			
+		}
+	}
+}
+
 //--------------------OpenGL initialization------------------------
 void initialise()
 {
@@ -243,7 +325,7 @@ void initialise()
     glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, white);
     glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 50);
     glColor4fv(materialCol);
-    loadModel("avatar_walk.bvh"); //<<<-------------Specify input file name here
+    loadModel("ArmyPilot.x"); //<<<-------------Specify input file name here
     loadGLTextures(scene);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -258,6 +340,7 @@ void update(int value)
         angle = 0;
     if (currTick < tDuration) {
         updateNodeMatrices(currTick);
+        transformVertices();
         currTick = (currTick + 1) % tDuration;
     }
 
@@ -287,7 +370,7 @@ void display()
 
     glRotatef(angle, 0.f, 1.f, 0.f); //Continuous rotation about the y-axis
     if (modelRotn)
-        glRotatef(-90, 1, 0, 0); //First, rotate the model about x-axis if needed.
+        glRotatef(90, 1, 0, 0); //First, rotate the model about x-axis if needed.
 
     // scale the whole asset to fit into our view frustum
     float tmp = scene_max.x - scene_min.x;
