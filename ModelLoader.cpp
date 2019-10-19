@@ -21,8 +21,12 @@ using namespace std;
 //----------Globals----------------------------
 const aiScene* scene = NULL;
 float angle = 0;
+float camera_z = 3;
+float speed = 0;
+int floor_x = 0;
 aiVector3D scene_min, scene_max, scene_center;
 bool modelRotn = true;
+float rotate_speed = 0;
 std::map<int, int> texIdMap;
 
 int tDuration; //Animation duration in ticks.
@@ -100,7 +104,6 @@ void loadGLTextures(const aiScene* scene)
 			{
 				c--;
 			}
-			cout << c << endl;
             glEnable(GL_TEXTURE_2D);
             ILuint imageId;
             GLuint texId;
@@ -123,7 +126,7 @@ void loadGLTextures(const aiScene* scene)
                     ilGetInteger(IL_IMAGE_HEIGHT), 0, GL_RGBA, GL_UNSIGNED_BYTE,
                     ilGetData());
                 glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-                cout << "Texture:" << path.data << " successfully loaded." << endl;
+                cout << "Texture:" << c << " successfully loaded." << endl;
                 glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
                 glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
                 glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
@@ -268,10 +271,12 @@ void transformVertices()
 	aiVector3D norm;
 	
 	int vid;
+	float weight;
 	
 	for (int n = 0; n < scene->mNumMeshes; n++) {
         mesh = scene->mMeshes[n]; //Get the mesh object
-
+		aiMatrix4x4 transforms[mesh->mNumVertices] = {aiMatrix4x4()};
+		aiMatrix4x4 normals[mesh->mNumVertices] = {aiMatrix4x4()};
 		for (int b = 0; b < mesh->mNumBones; b++)
 		{
 			bone = mesh->mBones[b];
@@ -291,15 +296,20 @@ void transformVertices()
 			
 			for (int w = 0; w < bone->mNumWeights; w++) {
 				vid = (bone->mWeights[w]).mVertexId;
+				weight = (bone->mWeights[w]).mWeight;
 				
-				vert = (initData + n)->mVertices[vid];
-				norm = (initData + n)->mNormals[vid];
-				
-				mesh->mVertices[vid] = m * vert;
-				mesh->mNormals[vid] = normal * norm;
+				transforms[vid] = transforms[vid] + m * weight;
+				normals[vid] = normals[vid] + normal * weight;
 			}
 			
 			
+		}
+		for (int i = 0; i < mesh->mNumVertices; i++)
+		{
+			vert = (initData + n)->mVertices[i];
+			mesh->mVertices[i] = transforms[i] * vert;
+			norm = (initData + n)->mNormals[i];
+			mesh->mNormals[i] = normals[i] * vert;
 		}
 	}
 }
@@ -329,19 +339,21 @@ void initialise()
     loadGLTextures(scene);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    gluPerspective(35, 1, 1.0, 1000.0);
+    gluPerspective(35, 1, 0.1, 1000.0);
 }
 
 //----Timer callback for continuous rotation of the model about y-axis----
 void update(int value)
 {
-    angle++;
+	floor_x = (floor_x - 5) % 100;
+    angle += rotate_speed;
+    camera_z += speed;
     if (angle > 360)
         angle = 0;
     if (currTick < tDuration) {
         updateNodeMatrices(currTick);
         transformVertices();
-        currTick = (currTick + 1) % tDuration;
+        currTick = (currTick + 4) % tDuration;
     }
 
     glutPostRedisplay();
@@ -356,6 +368,60 @@ void keyboard(unsigned char key, int x, int y)
     glutPostRedisplay();
 }
 
+void specialDown(int key, int x, int y)
+{
+	if (key == GLUT_KEY_LEFT)
+	{
+		rotate_speed = -0.1;
+	}
+	else if (key == GLUT_KEY_RIGHT)
+	{
+		rotate_speed = 0.1;
+	}
+	else if (key == GLUT_KEY_UP)
+	{
+		speed = -0.1;
+	}
+	else if (key == GLUT_KEY_DOWN)
+	{
+		speed = 0.1;
+	}
+}
+
+void specialUp(int key, int x, int y)
+{
+	if (key == GLUT_KEY_LEFT || key == GLUT_KEY_RIGHT)
+	{
+		rotate_speed = 0;
+	}
+	else if (key == GLUT_KEY_UP || key == GLUT_KEY_DOWN)
+	{
+		speed = 0;
+	}
+}
+
+void drawFloor()
+{
+    bool flag = false;
+
+    glBegin(GL_QUADS);
+    glNormal3f(0, -1, 0);
+    for(int x = -5000; x <= 5000; x += 50)
+    {
+        for(int z = -5000; z <= 5000; z += 50)
+        {
+            if(flag) glColor3f(0.0, 0.0, 0.0);
+            else glColor3f(1.0, 1.0, 1.0);
+            glVertex3f(x + floor_x, 10, z);
+            glVertex3f(x + floor_x, 10, z+50);
+            glVertex3f(x+50 + floor_x, 10, z+50);
+            glVertex3f(x+50 + floor_x, 10, z);
+            flag = !flag;
+        }
+    }
+    glEnd();
+}
+
 //------The main display function---------
 //----The model is first drawn using a display list so that all GL commands are
 //    stored for subsequent display updates.
@@ -365,10 +431,10 @@ void display()
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    gluLookAt(0, 0, 3, 0, 0, -5, 0, 1, 0);
+    gluLookAt(camera_z * sin(angle), 0, camera_z * cos(angle), 0, 0, 0, 0, 1, 0);
     glLightfv(GL_LIGHT0, GL_POSITION, lightPosn);
 
-    glRotatef(angle, 0.f, 1.f, 0.f); //Continuous rotation about the y-axis
+    //glRotatef(angle, 0.f, 1.f, 0.f); //Continuous rotation about the y-axis
     if (modelRotn)
         glRotatef(90, 1, 0, 0); //First, rotate the model about x-axis if needed.
 
@@ -378,7 +444,6 @@ void display()
     tmp = aisgl_max(scene_max.z - scene_min.z, tmp);
     tmp = 1.f / tmp;
     glScalef(tmp, tmp, tmp);
-
     float xc = (scene_min.x + scene_max.x) * 0.5;
     float yc = (scene_min.y + scene_max.y) * 0.5;
     float zc = (scene_min.z + scene_max.z) * 0.5;
@@ -386,6 +451,8 @@ void display()
     glTranslatef(-xc, -yc, -zc);
 
     render(scene, scene->mRootNode);
+
+    //~ drawFloor();
 
     glutSwapBuffers();
 }
@@ -402,7 +469,10 @@ int main(int argc, char** argv)
     initialise();
     glutDisplayFunc(display);
     glutTimerFunc(50, update, 0);
+    glutSetKeyRepeat(GLUT_KEY_REPEAT_OFF);
     glutKeyboardFunc(keyboard);
+    glutSpecialFunc(specialDown);
+    glutSpecialUpFunc(specialUp);
     glutMainLoop();
 
     aiReleaseImport(scene);
