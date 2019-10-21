@@ -29,7 +29,17 @@ int floor_z = 0;
 aiVector3D scene_min[3], scene_max[3], scene_center[3];
 float rotate_speed = 0;
 std::map<int, int> texIdMap[3];
-const char* dwarf_mapping[100] = {"base", "middle", "lhip", "lknee", "lankle", "ltoe", "spine1", "Joint76", "Joint75", "spine2", "head", "head", "head", "head", "head", "head", "head", "rsholda", "rsholda", "relbow", "relbow", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "rwrist", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""};
+std::map<int, int> dwarf_mapping = {
+	{6, 15},
+	{2, 18},
+	{3, 19},
+	{7, 16},
+	{4, 20},
+	{8, 17},
+	{13, 4},
+	{10, 2}
+};
+
 bool dwarf_2 = false;
 
 int tDuration[4]; //Animation duration in ticks.
@@ -62,9 +72,12 @@ bool loadModel(const char* fileName, const char* anim_file, int index)
 	}
 	if (anim_file != NULL)
 	{
-		const aiScene* qqq = aiImportFile(anim_file, aiProcessPreset_TargetRealtime_MaxQuality);
-		if (index == 2) printAnimInfo(qqq);
-		animations[index+((index+1)%2)] = qqq->mAnimations[0];
+		const aiScene* q = aiImportFile(anim_file, aiProcessPreset_TargetRealtime_MaxQuality);
+		animations[index+((index+1)%2)] = q->mAnimations[0];
+		if (index == 2)
+		{
+			printAnimInfo(q);
+		}
 		tDuration[index+((index+1)%2)] = animations[index+((index+1)%2)]->mDuration;
 	}
 	
@@ -89,7 +102,7 @@ bool loadModel(const char* fileName, const char* anim_file, int index)
     //~ printMeshInfo(scene);
     //~ if (index == 2)  printTreeInfo(scene->mRootNode);
     //~ if (index == 2) printBoneInfo(scene);
-    if (index == 2) printAnimInfo(scene);  //WARNING:  This may generate a lengthy output if the model has animation data
+    //~ if (index == 2) printAnimInfo(scene);  //WARNING:  This may generate a lengthy output if the model has animation data
     get_bounding_box(scene, &scene_min[index], &scene_max[index]);
     scenes[index] = scene;
     return true;
@@ -184,6 +197,10 @@ void render(const aiScene* sc, const aiNode* nd)
             texId = texIdMap[curr_scene][mesh->mMaterialIndex];
             glBindTexture(GL_TEXTURE_2D, texId);
         }
+        else
+        {
+			glDisable(GL_TEXTURE_2D);
+		}
 
         //Get the polygons from each mesh and draw them
         for (int k = 0; k < mesh->mNumFaces; k++) {
@@ -233,6 +250,7 @@ void render(const aiScene* sc, const aiNode* nd)
         render(sc, nd->mChildren[i]);
 
     glPopMatrix();
+    glEnable(GL_TEXTURE_2D);
 }
 
 // Update node vertices in character animation sequence
@@ -242,36 +260,57 @@ void updateNodeMatrices(int tick, const aiScene* scene)
 	
     int index;
     int n_animation = curr_scene;
+    aiAnimation* anim = animations[n_animation];
     if (dwarf_2 && curr_scene == 2)
     {
 		n_animation = 3;
 	}
-    aiAnimation* anim = animations[n_animation];
     aiMatrix4x4 matPos, matRot, matProd;
     aiMatrix3x3 matRot3;
     aiNode* nd;
+    int prev_index;
     for (int i = 0; i < anim->mNumChannels; i++) {
-		if(curr_scene == 1 && i == 23) continue;
+		if (n_animation == 3) anim = animations[2];
+		else anim = animations[n_animation];
+		int anim_n = i;
+
         matPos = aiMatrix4x4();
         //Identity
         matRot = aiMatrix4x4();
-        aiNodeAnim* ndAnim = anim->mChannels[i]; //Channel
-        cout << i << endl;
-        cout << ndAnim->mNodeName.C_Str() << endl;
-        cout << dwarf_mapping[i] << endl;
+        aiNodeAnim* ndAnim = anim->mChannels[anim_n]; //Channel
+        
         if (ndAnim->mNumPositionKeys > 1)
-            index = tick;
+        {
+            index = 0;
+            prev_index = ndAnim->mNumPositionKeys - 1;
+            while (tick > ndAnim->mPositionKeys[index].mTime)
+			{
+				index++;
+				prev_index = index - 1;
+			}
+		}
         else
             index = 0;
+        if (i == 1 && n_animation == 3) index = 0;
         aiVector3D posn = (ndAnim->mPositionKeys[index]).mValue;
         matPos.Translation(posn, matPos);
         aiQuaternion rotn;
+        
+        if (n_animation == 3 && dwarf_mapping[i])
+		{
+			anim_n = dwarf_mapping[i];
+			anim = animations[3];
+		}
+		ndAnim = anim->mChannels[anim_n];
+		cout << anim->mChannels[anim_n]->mNodeName.C_Str() << endl;
+		if(curr_scene == 1 && i == 23) continue;
+        
         if (ndAnim->mNumRotationKeys > 1)
         {
 			if (curr_scene == 0) rotn = (ndAnim->mRotationKeys[index]).mValue;
 			else {
 				index = 0;
-				int prev_index = ndAnim->mNumRotationKeys - 1;
+				prev_index = ndAnim->mNumRotationKeys - 1;
 				while (tick > ndAnim->mRotationKeys[index].mTime)
 				{
 					index++;
@@ -279,8 +318,8 @@ void updateNodeMatrices(int tick, const aiScene* scene)
 				}
 				aiQuaternion rotn1 = (ndAnim->mRotationKeys[prev_index]).mValue;
 				aiQuaternion rotn2 = (ndAnim->mRotationKeys[index]).mValue;
-				int time1 = (ndAnim->mRotationKeys[prev_index]).mTime;
-				int time2 = (ndAnim->mRotationKeys[index]).mTime;
+				float time1 = (ndAnim->mRotationKeys[prev_index]).mTime;
+				float time2 = (ndAnim->mRotationKeys[index]).mTime;
 				float factor = (tick-time1)/(time2-time1);
 				rotn.Interpolate(rotn, rotn1, rotn2, factor);
 			}
@@ -295,11 +334,16 @@ void updateNodeMatrices(int tick, const aiScene* scene)
         matRot = aiMatrix4x4(matRot3);
 
         matProd = matPos * matRot;
-        cout << "HELP?4" << endl;
-        if (n_animation == 3) nd = scene->mRootNode->FindNode(dwarf_mapping[i]);
-        else nd = scene->mRootNode->FindNode(ndAnim->mNodeName);
+        
+        if (n_animation == 3)
+		{
+			anim = animations[2];
+		}
+        
+        ndAnim = anim->mChannels[i];
+		nd = scene->mRootNode->FindNode(ndAnim->mNodeName);
+		cout << (nd == NULL) << endl;
         if (nd != NULL) nd->mTransformation = matProd;
-        cout << "HELP?5" << endl;
     }
 }
 
@@ -365,7 +409,7 @@ void transformVertices(const aiScene* scene)
 //--------------------OpenGL initialization------------------------
 void initialise()
 {
-    float ambient[4] = { 0.2, 0.2, 0.2, 1.0 }; //Ambient light
+    float ambient[4] = { 0.8, 0.8, 0.8, 1.0 }; //Ambient light
     float white[4] = { 1, 1, 1, 1 }; //Light's colour
     glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
     glEnable(GL_LIGHTING);
@@ -408,16 +452,14 @@ void update(int value)
 		n_animation = 3;
 	}
     if (currTick[n_animation] < tDuration[n_animation]) {
-		cout << "HELP?1" << endl;
+		if (curr_scene == 0) updateNodeMatrices((currTick[n_animation] * 2) % tDuration[n_animation] , scenes[curr_scene]);
         updateNodeMatrices(currTick[n_animation], scenes[curr_scene]);
-        cout << "HELP?2" << endl;
         transformVertices(scenes[curr_scene]);
-        cout << "HELP?3" << endl;
     }
-    currTick[curr_scene] = (currTick[curr_scene] + 1) % tDuration[curr_scene];
+    currTick[n_animation] = (currTick[n_animation] + 1) % tDuration[n_animation];
 
     glutPostRedisplay();
-    glutTimerFunc(16, update, 0);
+    glutTimerFunc(50, update, 0);
 }
 
 //----Keyboard callback to toggle initial model orientation---
@@ -470,6 +512,7 @@ void specialUp(int key, int x, int y)
 
 void drawFloor()
 {
+	glDisable(GL_TEXTURE_2D);
     bool flag = false;
     glBegin(GL_QUADS);
     glNormal3f(0, -1, 0);
@@ -477,8 +520,8 @@ void drawFloor()
     {
         for(int z = -5000; z <= 5000; z += 50)
         {
-            if(flag) glColor3f(0.0, 0.0, 0.0);
-            else glColor3f(1.0, 1.0, 1.0);
+            if(flag) glColor4f(0.93, 0.73, 0.67, 1.0);
+            else glColor4f(0.22, 0.89, 0.94, 1.0);
             glVertex3f(x, -90, z + floor_z);
             glVertex3f(x, -90, z+50 + floor_z);
             glVertex3f(x+50, -90, z+50 + floor_z);
@@ -487,6 +530,7 @@ void drawFloor()
         }
     }
     glEnd();
+    glEnable(GL_TEXTURE_2D);
 }
 
 //------The main display function---------
@@ -509,10 +553,11 @@ void display()
     tmp = aisgl_max(scene_max[curr_scene].z - scene_min[curr_scene].z, tmp);
     tmp = 1.f / tmp;
     glScalef(tmp, tmp, tmp);
-    glDisable(GL_LIGHTING);
     drawFloor();
-    glEnable(GL_LIGHTING);
-    if (curr_scene == 1) glScalef(0.01, 0.01, 0.01);
+    if (curr_scene == 1){
+		glTranslatef(0, -120, 0);
+		glScalef(0.01, 0.01, 0.01);
+	}
     else if (curr_scene == 0)
     {
 		glRotatef(90, 1, 0, 0);
@@ -523,7 +568,6 @@ void display()
     float zc = (scene_min[curr_scene].z + scene_max[curr_scene].z) * 0.5;
     // center the model
     glTranslatef(-xc, -yc, -zc);
-
     render(scenes[curr_scene], scenes[curr_scene]->mRootNode);
 
 
@@ -541,7 +585,7 @@ int main(int argc, char** argv)
 
     initialise();
     glutDisplayFunc(display);
-    glutTimerFunc(16, update, 0);
+    glutTimerFunc(50, update, 0);
     glutSetKeyRepeat(GLUT_KEY_REPEAT_OFF);
     glutKeyboardFunc(keyboard);
     glutSpecialFunc(specialDown);
