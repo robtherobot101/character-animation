@@ -300,7 +300,9 @@ void updateNodeMatrices(int tick, const aiScene* scene)
 		{
 			anim_n = dwarf_mapping[i];
 			anim = animations[3];
+			tick = currTick[3];
 		}
+		else if (n_animation == 3) tick = currTick[n_animation-1];
 		ndAnim = anim->mChannels[anim_n];
 		cout << anim->mChannels[anim_n]->mNodeName.C_Str() << endl;
 		if(curr_scene == 1 && i == 23) continue;
@@ -311,6 +313,7 @@ void updateNodeMatrices(int tick, const aiScene* scene)
 			else {
 				index = 0;
 				prev_index = ndAnim->mNumRotationKeys - 1;
+				
 				while (tick > ndAnim->mRotationKeys[index].mTime)
 				{
 					index++;
@@ -441,7 +444,7 @@ void initialise()
 //----Timer callback for continuous rotation of the model about y-axis----
 void update(int value)
 {
-	floor_z = (floor_z - 1) % 100;
+	if (dwarf_2 || !(curr_scene == 2)) floor_z = (floor_z - 3) % 100;
     angle += rotate_speed;
     camera_z += speed;
     if (angle > 360)
@@ -449,7 +452,7 @@ void update(int value)
     int n_animation = curr_scene;
     if (dwarf_2 && curr_scene == 2)
     {
-		n_animation = 3;
+		n_animation = 2;
 	}
     if (currTick[n_animation] < tDuration[n_animation]) {
 		if (curr_scene == 0) updateNodeMatrices((currTick[n_animation] * 2) % tDuration[n_animation] , scenes[curr_scene]);
@@ -457,6 +460,7 @@ void update(int value)
         transformVertices(scenes[curr_scene]);
     }
     currTick[n_animation] = (currTick[n_animation] + 1) % tDuration[n_animation];
+    if (dwarf_2 && curr_scene == 2) currTick[n_animation+1] = (currTick[n_animation+1] + 1) % tDuration[n_animation+1];
 
     glutPostRedisplay();
     glutTimerFunc(50, update, 0);
