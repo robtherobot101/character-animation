@@ -58,7 +58,8 @@ meshInit* initData[3];
 float materialCol[4] = { 0.9, 0.9, 0.9, 1 }; //Default material colour (not used if model's colour is available)
 bool replaceCol = false; //Change to 'true' to set the model's colour to the above colour
 float lightPosn[4] = { 0, 50, 50, 1 }; //Default light's position
-bool twoSidedLight = false; //Change to 'true' to enable two-sided lighting
+bool twoSidedLight = true; //Change to 'true' to enable two-sided lighting
+float m_col[4] = { 0.2, 0.2, 0.2, 1 };
 
 //-------Loads model data from file and creates a scene object----------
 bool loadModel(const char* fileName, const char* anim_file, int index)
@@ -74,10 +75,6 @@ bool loadModel(const char* fileName, const char* anim_file, int index)
 	{
 		const aiScene* q = aiImportFile(anim_file, aiProcessPreset_TargetRealtime_MaxQuality);
 		animations[index+((index+1)%2)] = q->mAnimations[0];
-		if (index == 2)
-		{
-			printAnimInfo(q);
-		}
 		tDuration[index+((index+1)%2)] = animations[index+((index+1)%2)]->mDuration;
 	}
 	
@@ -200,6 +197,7 @@ void render(const aiScene* sc, const aiNode* nd)
         else
         {
 			glDisable(GL_TEXTURE_2D);
+			glColor4fv(m_col);
 		}
 
         //Get the polygons from each mesh and draw them
@@ -226,7 +224,6 @@ void render(const aiScene* sc, const aiNode* nd)
 
             for (int i = 0; i < face->mNumIndices; i++) {
                 int vertexIndex = face->mIndices[i];
-
                 if (mesh->HasVertexColors(0))
                     glColor4fv((GLfloat*)&mesh->mColors[0][vertexIndex]);
 
@@ -304,7 +301,6 @@ void updateNodeMatrices(int tick, const aiScene* scene)
 		}
 		else if (n_animation == 3) tick = currTick[n_animation-1];
 		ndAnim = anim->mChannels[anim_n];
-		cout << anim->mChannels[anim_n]->mNodeName.C_Str() << endl;
 		if(curr_scene == 1 && i == 23) continue;
         
         if (ndAnim->mNumRotationKeys > 1)
@@ -345,7 +341,6 @@ void updateNodeMatrices(int tick, const aiScene* scene)
         
         ndAnim = anim->mChannels[i];
 		nd = scene->mRootNode->FindNode(ndAnim->mNodeName);
-		cout << (nd == NULL) << endl;
         if (nd != NULL) nd->mTransformation = matProd;
     }
 }
@@ -392,7 +387,7 @@ void transformVertices(const aiScene* scene)
 				weight = (bone->mWeights[w]).mWeight;
 				
 				transforms[vid] = transforms[vid] + m * weight;
-				normals[vid] = normals[vid] + normal * weight;
+				normals[vid] = normal * weight;
 			}
 			
 			
@@ -455,7 +450,6 @@ void update(int value)
 		n_animation = 2;
 	}
     if (currTick[n_animation] < tDuration[n_animation]) {
-		if (curr_scene == 0) updateNodeMatrices((currTick[n_animation] * 2) % tDuration[n_animation] , scenes[curr_scene]);
         updateNodeMatrices(currTick[n_animation], scenes[curr_scene]);
         transformVertices(scenes[curr_scene]);
     }
